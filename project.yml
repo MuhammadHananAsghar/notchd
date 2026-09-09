@@ -1,0 +1,148 @@
+name: Notchd
+options:
+  bundleIdPrefix: com.muhammad
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    # Sparkle compares CFBundleVersion to decide what is newer. Both values are
+    # read from here by Sources/Info.plist, so bump CURRENT_PROJECT_VERSION on
+    # every release.
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # The release identity. The Makefile overrides it for Debug builds with the
+    # best identity actually installed on the machine. Run `make signing`.
+    CODE_SIGN_IDENTITY: "Developer ID Application"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: QRG2QY4242
+    CODE_SIGNING_REQUIRED: "YES"
+    CODE_SIGNING_ALLOWED: "YES"
+    # Required by notarization. The App Sandbox stays off: Notchd reads other
+    # tools' configuration files and listens on a unix socket in Application
+    # Support, and Developer ID distribution does not require the sandbox.
+    ENABLE_HARDENED_RUNTIME: "YES"
+    ENABLE_APP_SANDBOX: "NO"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
+targets:
+  Notchd:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/App
+      - path: Sources/Core
+      - path: Sources/DesignSystem
+      - path: Sources/Notch
+      - path: Sources/Settings
+      - path: Sources/Assets.xcassets
+    dependencies:
+      - package: Sparkle
+      # The hook binary ships inside the app bundle, beside the main executable,
+      # so the hook entries Notchd writes into each agent's configuration point
+      # at a path that exists for as long as the app does.
+      - target: notchd-hook
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+      # The command line. Same ledger and store as the app, so `notchd revert`
+      # works whether or not the app is running. It goes in Contents/Helpers:
+      # in Contents/MacOS the product `notchd` would overwrite the app's own
+      # `Notchd` executable on a case-insensitive filesystem.
+      - target: notchd-cli
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: Notchd
+        CFBundleDisplayName: Notchd
+        LSMinimumSystemVersion: "26.0"
+        # A menu bar app. The timeline window is opened from the status item,
+        # so there is no Dock tile and nothing in Cmd-Tab.
+        LSUIElement: true
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # --- Sparkle -------------------------------------------------------
+        # The feed is an asset on every GitHub release. The public key is the
+        # printed half of a keypair made with Sparkle's `generate_keys`; the
+        # private half lives in the maintainer's login keychain only.
+        SUFeedURL: "https://github.com/MuhammadHananAsghar/notchd/releases/latest/download/appcast.xml"
+        SUPublicEDKey: "wT/2Q6ELoc3rjGntu4kox9nzv8WIdJNKlsWSEfNdC30="
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
+        SUScheduledCheckInterval: 86400
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.muhammad.notchd
+        GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # The binary every agent invokes as a hook. It forwards the vendor's JSON to
+  # the app's socket and exits 0 no matter what, so a Notchd failure can never
+  # block a tool call. It links nothing but Darwin to keep its start-up short.
+  notchd-hook:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/Hook
+    settings:
+      base:
+        PRODUCT_NAME: notchd-hook
+        PRODUCT_BUNDLE_IDENTIFIER: com.muhammad.notchd.hook
+        SKIP_INSTALL: "YES"
+
+  # Named notchd-cli rather than notchd: the product is `notchd`, but the
+  # target and module must not collide with the `Notchd` app on a
+  # case-insensitive filesystem.
+  notchd-cli:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/CLI
+      - path: Sources/Core
+    settings:
+      base:
+        PRODUCT_NAME: notchd
+        PRODUCT_MODULE_NAME: NotchdCLI
+        PRODUCT_BUNDLE_IDENTIFIER: com.muhammad.notchd.cli
+        SKIP_INSTALL: "YES"
+
+  NotchdTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Notchd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.muhammad.notchd.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  Notchd:
+    build:
+      targets:
+        Notchd: all
+        notchd-hook: all
+        notchd-cli: all
+        NotchdTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - NotchdTests
