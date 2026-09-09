@@ -13,3 +13,5 @@ build/
 *.o
 *.d
 *.swiftdeps
+*.dia
+*.swiftconstvalues
